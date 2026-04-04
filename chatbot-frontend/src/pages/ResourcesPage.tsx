@@ -1,8 +1,9 @@
-import React, { useEffect, useState, useMemo } from "react";
-import { onAuthChange, logoutUser, fetchDocuments, generateQuiz, type DocumentInfo } from "@/lib/auth";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
+import { onAuthChange, logoutUser, fetchDocuments, fetchPreviewUrl, downloadDocument, generateQuiz, type DocumentInfo } from "@/lib/auth";
 import { auth, type User } from "@/lib/auth";
 import { useNavigate } from "react-router-dom";
 import Dropdown from "@/components/common/Dropdown";
+import { FilePreview } from "@/components/FilePreview";
 
 type SortOption = "name" | "date" | "size";
 type ViewMode = "grid" | "list";
@@ -18,6 +19,7 @@ export default function ResourcesPage() {
 
   const [selectedPreviewDoc, setSelectedPreviewDoc] = useState<DocumentInfo | null>(null);
   const [isGeneratingQuizId, setIsGeneratingQuizId] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const getFileType = (filename: string) => {
     const parts = filename.split(".");
@@ -37,6 +39,52 @@ export default function ResourcesPage() {
       setIsGeneratingQuizId(null);
     }
   };
+
+  // Download handler
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const handleDownload = useCallback(async (doc: DocumentInfo) => {
+    setDownloadingId(doc.document_id);
+    try {
+      await downloadDocument(doc.document_id, doc.source);
+    } catch (err) {
+      console.error("Download failed:", err);
+      alert("Download failed. Please try again.");
+    } finally {
+      setDownloadingId(null);
+    }
+  }, []);
+
+  // Fetch file URL when a doc is selected for preview
+  useEffect(() => {
+    if (!selectedPreviewDoc) {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      setPreviewUrl(null);
+      return;
+    }
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const proxyUrl = await fetchPreviewUrl(selectedPreviewDoc.document_id);
+        const token = sessionStorage.getItem("student_token");
+        const headers: Record<string, string> = {};
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+
+        const res = await fetch(proxyUrl, { headers });
+        if (!res.ok) throw new Error("File fetch failed");
+        const blob = await res.blob();
+        if (!cancelled) {
+          setPreviewUrl(URL.createObjectURL(blob));
+        }
+      } catch (err) {
+        console.error("Preview fetch failed:", err);
+        if (!cancelled) setPreviewUrl(null);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPreviewDoc]);
 
   // Filters and views
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
@@ -239,11 +287,12 @@ export default function ResourcesPage() {
                           >
                             <div className="absolute top-0 right-0 w-[50px] h-[50px] bg-blue-50 rounded-bl-full -z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
                             <button 
-                              className="absolute top-1 right-1 p-1 text-slate-400 hover:text-[#0d47a1] opacity-0 group-hover:opacity-100 transition-all duration-300 z-10 cursor-pointer hover:scale-125 active:scale-90 group-hover:translate-x-0 translate-x-2 hover-bounce"
+                              className="absolute top-1 right-1 p-1 text-slate-400 hover:text-[#0d47a1] opacity-0 group-hover:opacity-100 transition-all duration-300 z-10 cursor-pointer hover:scale-125 active:scale-90 group-hover:translate-x-0 translate-x-2 hover-bounce disabled:opacity-50"
                               title="Download resource"
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); alert("Downloading: " + doc.source); }}
+                              disabled={downloadingId === doc.document_id}
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDownload(doc); }}
                             >
-                              <span className="material-symbols-outlined text-[18px]">download</span>
+                              <span className="material-symbols-outlined text-[18px]">{downloadingId === doc.document_id ? "hourglass_top" : "download"}</span>
                             </button>
                             
 
@@ -326,10 +375,11 @@ export default function ResourcesPage() {
                                 {isGeneratingQuizId === doc.document_id ? "..." : "Generate Quiz"}
                               </button>
                               <button 
-                                className="p-2.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all"
-                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); alert("Downloading: " + doc.source); }}
+                                className="p-2.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all disabled:opacity-50"
+                                disabled={downloadingId === doc.document_id}
+                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDownload(doc); }}
                               >
-                                <span className="material-symbols-outlined text-[20px]">download</span>
+                                <span className="material-symbols-outlined text-[20px]">{downloadingId === doc.document_id ? "hourglass_top" : "download"}</span>
                               </button>
                             </div>
                           </div>
@@ -342,91 +392,18 @@ export default function ResourcesPage() {
             )}
 
             {/* Document Preview Modal */}
-            {selectedPreviewDoc && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                <div 
-                  className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
-                  onClick={() => setSelectedPreviewDoc(null)}
-                ></div>
-                
-                <div className="bg-white rounded-2xl shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col relative z-10 animate-in fade-in zoom-in-95 duration-200">
-                  {/* Modal Header */}
-                  <div className="flex items-center justify-between p-4 px-6 border-b border-slate-100">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-blue-50 text-[#0d47a1] flex items-center justify-center border border-blue-100 shrink-0">
-                        <span className="material-symbols-outlined">{getFileType(selectedPreviewDoc.source) === 'PDF' ? 'picture_as_pdf' : 'description'}</span>
-                      </div>
-                      <div>
-                        <h2 className="text-sm font-bold text-slate-800 line-clamp-1">{selectedPreviewDoc.title || selectedPreviewDoc.source}</h2>
-                        <p className="text-xs font-semibold text-slate-400 capitalize">
-                          {selectedPreviewDoc.stream || "General"} {selectedPreviewDoc.semester ? `• Sem ${selectedPreviewDoc.semester}` : ""}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                       <button 
-                          className="p-2 text-slate-400 hover:text-[#0d47a1] hover:bg-blue-50 rounded-full transition-colors cursor-pointer mr-2"
-                          title="Download resource"
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); alert("Downloading: " + selectedPreviewDoc.source); }}
-                        >
-                          <span className="material-symbols-outlined text-[20px]">download</span>
-                        </button>
-                      <button 
-                        onClick={() => setSelectedPreviewDoc(null)}
-                        className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors cursor-pointer"
-                      >
-                        <span className="material-symbols-outlined text-[20px]">close</span>
-                      </button>
-                    </div>
-                  </div>
-                  
-                  {/* Modal Body (Dummy Preview) */}
-                  <div className="flex-1 overflow-y-auto bg-slate-50 p-6">
-                    <div className="max-w-3xl mx-auto bg-white p-8 rounded border border-slate-200 shadow-sm min-h-[60vh]">
-                        <div className="w-full h-8 bg-slate-100 rounded mb-6 w-3/4 animate-pulse"></div>
-                        <div className="space-y-3 animate-pulse">
-                          <div className="w-full h-4 bg-slate-100 rounded"></div>
-                          <div className="w-full h-4 bg-slate-100 rounded"></div>
-                          <div className="w-full h-4 bg-slate-100 rounded"></div>
-                          <div className="w-5/6 h-4 bg-slate-100 rounded"></div>
-                        </div>
-                        
-                        <div className="mt-8 space-y-3 animate-pulse">
-                          <div className="w-1/2 h-6 bg-slate-100 rounded mb-4"></div>
-                          <div className="w-full h-4 bg-slate-100 rounded"></div>
-                          <div className="w-full h-4 bg-slate-100 rounded"></div>
-                          <div className="w-4/5 h-4 bg-slate-100 rounded"></div>
-                        </div>
-                        
-                        <div className="mt-8 flex items-center justify-center border-2 border-dashed border-slate-200 rounded-lg h-32 bg-slate-50 text-slate-400">
-                          <span className="text-sm font-bold uppercase tracking-widest flex items-center gap-2">
-                            <span className="material-symbols-outlined">visibility</span>
-                            Document Preview Area
-                           </span>
-                        </div>
-                    </div>
-                  </div>
-                  
-                  {/* Modal Footer */}
-                  <div className="p-4 border-t border-slate-100 flex items-center justify-end gap-3 bg-white rounded-b-2xl">
-                    <button
-                      onClick={(e) => { e.preventDefault(); navigate(`/chat?document_id=${selectedPreviewDoc.document_id}`); }}
-                      className="px-5 bg-blue-50 text-[#0d47a1] py-2.5 rounded-xl text-sm font-bold hover:bg-blue-100 transition-colors flex items-center gap-2"
-                    >
-                      <span className="material-symbols-outlined text-[18px]">chat</span>
-                      Ask Doubt
-                    </button>
-                    <button
-                    onClick={(e) => { e.preventDefault(); handleGenerateQuiz(selectedPreviewDoc); setSelectedPreviewDoc(null); }}
-                    disabled={isGeneratingQuizId === selectedPreviewDoc.document_id}
-                    className="px-5 bg-[#0d47a1] text-white py-2.5 rounded-xl text-sm font-bold hover:bg-blue-800 transition-colors disabled:opacity-50 flex items-center gap-2 shadow-md"
-                    >
-                      <span className="material-symbols-outlined text-[18px]">psychology</span>
-                      {isGeneratingQuizId === selectedPreviewDoc.document_id ? "Generating..." : "Generate Quiz"}
-                    </button>
-                  </div>
-                </div>
-              </div>
+            {selectedPreviewDoc && previewUrl && (
+              <FilePreview
+                documentId={selectedPreviewDoc.document_id}
+                fileName={selectedPreviewDoc.title || selectedPreviewDoc.source}
+                fileUrl={previewUrl}
+                onClose={() => setSelectedPreviewDoc(null)}
+                onDownload={() => handleDownload(selectedPreviewDoc)}
+                additionalInfo={{
+                  stream: selectedPreviewDoc.stream || undefined,
+                  semester: selectedPreviewDoc.semester || undefined
+                }}
+              />
             )}
 
           </div>

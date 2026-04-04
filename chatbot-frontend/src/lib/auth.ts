@@ -312,6 +312,27 @@ export async function fetchDocuments(): Promise<DocumentInfo[]> {
   }));
 }
 
+export async function fetchPreviewUrl(documentId: string): Promise<string> {
+  const res = await apiFetch(`/api/v1/documents/${documentId}/preview`);
+  if (!res.ok) throw new Error("Failed to fetch preview URL");
+  const data = await res.json();
+  return data.preview_url;
+}
+
+export async function downloadDocument(documentId: string, filename: string): Promise<void> {
+  const res = await apiFetch(`/api/v1/documents/${documentId}/file`);
+  if (!res.ok) throw new Error("Failed to download file");
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 // ─── Quiz Generation ───
 
 export interface QuizOption {
