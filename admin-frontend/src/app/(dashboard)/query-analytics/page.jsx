@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import RoleProtectedRoute from '../../../components/RoleProtectedRoute';
 import { motion } from 'framer-motion';
-import api from '../../../services/api';
+import { api } from '../../../services/api';
 
 const pageVariants = {
   initial: { opacity: 0, y: 10 },

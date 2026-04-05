@@ -6,8 +6,7 @@ import { Users, Upload, FileText, CheckCircle2, AlertCircle, Loader2, Search, Fi
 import { useAuth } from '../../../context/AuthContext';
 import RoleProtectedRoute from '../../../components/RoleProtectedRoute';
 import { Button } from '../../../components/UI/Button';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+import { api } from '../../../services/api';
 
 export default function EnrollStudentsPage() {
   const { token } = useAuth();
@@ -68,33 +67,21 @@ export default function EnrollStudentsPage() {
     setIsUploading(true);
     setStatus({ type: '', message: '' });
 
-    const formData = new FormData();
-    formData.append('file', file);
-
     try {
-      const response = await fetch(`${API_URL}/api/v1/admin/enroll_students`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
-        body: formData
-      });
+      // Read CSV file as text — backend expects JSON with csv_data string
+      const csvText = await file.text();
 
-      const data = await response.json();
+      const data = await api.admin.enroll(csvText);
 
-      if (response.ok) {
-        setStatus({ type: 'success', message: data.message || `Successfully enrolled students.` });
-        setFile(null);
-        setPreviewData(null);
-        setHeaders([]);
-        const fileInput = document.getElementById('student-file-upload');
-        if (fileInput) fileInput.value = '';
-      } else {
-        setStatus({ type: 'error', message: data.detail || data.message || 'Failed to enroll students.' });
-      }
+      setStatus({ type: 'success', message: data.message || `Successfully enrolled students.` });
+      setFile(null);
+      setPreviewData(null);
+      setHeaders([]);
+      const fileInput = document.getElementById('student-file-upload');
+      if (fileInput) fileInput.value = '';
     } catch (error) {
       console.error('Upload error:', error);
-      setStatus({ type: 'error', message: 'Network error occurred while uploading. Please check API server.' });
+      setStatus({ type: 'error', message: error.message || 'Failed to enroll students.' });
     } finally {
       setIsUploading(false);
     }

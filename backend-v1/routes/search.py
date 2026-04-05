@@ -68,18 +68,24 @@ router = APIRouter(prefix="/api/v1", tags=["search"])
 
 async def _track_query_stats(db, uid: str, search_results: list, vs) -> None:
     """
-    Fire-and-forget update of per-user query analytics + global daily_queries.
+    Fire-and-forget update of:
+      1. Global daily_queries counter
+      2. Per-student query_stats (by_subject, by_module, daily_queries)
+      3. Global stream-level stream_hit_counts (by_subject, by_module) — shared
+         across all students in the same stream, not tied to any individual student.
     """
     try:
         ist = pytz.timezone("Asia/Kolkata")
         today = datetime.now(ist).strftime("%Y-%m-%d")
 
+        # 1. Global daily counter
         await db.db.daily_queries.update_one(
             {"date": today},
             {"$inc": {"count": 1}},
             upsert=True,
         )
 
+        # ── Collect subject/module data from search results ───────────
         inc_fields: Dict[str, int] = {
             "total_queries": 1,
             f"daily_queries.{today}": 1,
@@ -109,11 +115,55 @@ async def _track_query_stats(db, uid: str, search_results: list, vs) -> None:
                 )
                 modules_seen.add(chunk.document_id)
 
+        # 2. Per-student query_stats
         update: Dict = {"$inc": inc_fields}
         if set_fields:
             update["$set"] = set_fields
 
         await db.db.query_stats.update_one({"_id": uid}, update, upsert=True)
+
+        # 3. Global stream-level hit counters (stream_hit_counts)
+        #    Keyed by stream name (e.g. "cse"), tracks net subject + module hits
+        #    shared across the entire stream.
+        try:
+            profile = await db.db.student_profiles.find_one({"_id": uid}, {"stream": 1})
+            student_stream = (profile.get("stream", "") if profile else "").strip().lower()
+
+            if student_stream:
+                stream_inc: Dict[str, int] = {"total_queries": 1}
+                stream_set: Dict[str, str] = {}
+
+                for subj in subjects_seen:
+                    safe_subj = subj.replace(".", "_").replace("/", "_")
+                    stream_inc[f"by_subject.{safe_subj}"] = (
+                        stream_inc.get(f"by_subject.{safe_subj}", 0) + 1
+                    )
+
+                for doc_id in modules_seen:
+                    safe_doc = doc_id.replace(".", "_").replace("/", "_")
+                    # Retrieve chunk again to get metadata for the set fields
+                    for cid, _ in search_results:
+                        c = vs.get_chunk(cid)
+                        if c and c.document_id == doc_id:
+                            stream_set[f"by_module.{safe_doc}.subject"] = c.subject or ""
+                            stream_set[f"by_module.{safe_doc}.title"] = c.title or c.source or ""
+                            break
+                    stream_inc[f"by_module.{safe_doc}.queries"] = (
+                        stream_inc.get(f"by_module.{safe_doc}.queries", 0) + 1
+                    )
+
+                stream_update: Dict = {"$inc": stream_inc}
+                if stream_set:
+                    stream_update["$set"] = stream_set
+
+                await db.db.stream_hit_counts.update_one(
+                    {"_id": student_stream},
+                    stream_update,
+                    upsert=True,
+                )
+        except Exception as stream_exc:
+            logger.warning("Failed to update stream hit counts: %s", stream_exc)
+
     except Exception as exc:
         logger.warning("Failed to track query stats: %s", exc)
 

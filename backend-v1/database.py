@@ -102,6 +102,9 @@ class Database:
         # Per-user query stats (for analytics)
         await self.db.query_stats.create_index("total_queries")
 
+        # Stream-level hit counts (global per-stream, not per-student)
+        await self.db.stream_hit_counts.create_index("total_queries")
+
         # Curriculum
         await self.db.curriculum.create_index(
             [("stream", 1), ("semester", 1)], unique=True

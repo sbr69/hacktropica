@@ -3,8 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import RoleProtectedRoute from '../../../components/RoleProtectedRoute';
 import { motion } from 'framer-motion';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
+import { api } from '../../../services/api';
 
 const pageVariants = {
   initial: { opacity: 0, y: 10 },
@@ -31,24 +30,45 @@ export default function SubjectAnalysis() {
 
   useEffect(() => {
     async function fetchData() {
+      setLoading(true);
       try {
-        const [subRes, riskRes] = await Promise.all([
-          fetch(`${API_URL}/api/admin/subject-analysis`),
-          fetch(`${API_URL}/api/admin/student-risks`)
+        // Use real analytics endpoints instead of nonexistent /api/admin/* routes
+        const [streamData, overviewData] = await Promise.all([
+          api.analytics.stream().catch(() => null),
+          api.analytics.overview().catch(() => null),
         ]);
-        
-        if (subRes.ok) {
-          const subJson = await subRes.json();
-          setSubjectsData(subJson.data || MOCK_SUBJECTS_DATA);
+
+        // Transform stream analytics subjects into subject-analysis format
+        if (streamData?.subjects?.length > 0) {
+          const transformed = streamData.subjects.map(s => ({
+            subject: s.subject,
+            topic: "General",
+            proficiency: s.proficiency_score || 0,
+            pendingDoubts: s.total_queries || 0,
+          }));
+          setSubjectsData(transformed);
         } else {
-            setSubjectsData(MOCK_SUBJECTS_DATA);
+          setSubjectsData(MOCK_SUBJECTS_DATA);
         }
 
-        if (riskRes.ok) {
-          const riskJson = await riskRes.json();
-          setStudentRisks(riskJson.data || MOCK_STUDENT_RISKS);
+        // Transform overview at-risk students into risk format
+        if (overviewData?.at_risk_students?.length > 0) {
+          const transformedRisks = overviewData.at_risk_students.map(s => {
+            const initials = s.name ? s.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() : 'NA';
+            const level = s.total_queries > 50 ? 'Critical' : s.total_queries > 20 ? 'Moderate' : 'Stable';
+            return {
+              initials,
+              name: s.name,
+              id: s.roll || s.uid,
+              level,
+              frictionPoints: (s.top_subjects || []).map(sub => sub.replace(/_/g, ' ')),
+              action: level === 'Critical' ? 'Targeted Revision' : level === 'Moderate' ? 'Extra Assignment' : 'None',
+              reference: `${s.total_queries} queries total`,
+            };
+          });
+          setStudentRisks(transformedRisks);
         } else {
-            setStudentRisks(MOCK_STUDENT_RISKS);
+          setStudentRisks(MOCK_STUDENT_RISKS);
         }
       } catch (err) {
         console.error("Failed to fetch subject analytics:", err);

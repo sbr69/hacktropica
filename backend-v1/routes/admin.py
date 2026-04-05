@@ -134,6 +134,57 @@ async def list_students(
     return {"students": students, "total": len(students)}
 
 
+@router.get("/curriculum")
+async def get_all_curriculum(
+    stream: Optional[str] = None,
+    semester: Optional[str] = None,
+    user=Depends(get_current_user),
+    db=Depends(get_db),
+):
+    """Get curriculum data - optionally filtered by stream and/or semester."""
+    query = {}
+    if stream:
+        query["stream"] = stream
+    if semester:
+        query["semester"] = semester
+
+    cursor = db.db.curriculum.find(query).sort([("stream", 1), ("semester", 1)])
+    curriculum = []
+    async for doc in cursor:
+        curriculum.append({
+            "stream": doc.get("stream"),
+            "semester": doc.get("semester"),
+            "subjects": doc.get("subjects", []),
+            "updated_at": doc.get("updated_at"),
+        })
+
+    return {"curriculum": curriculum, "total": len(curriculum)}
+
+
+@router.get("/curriculum/{stream}/{semester}")
+async def get_curriculum_by_stream_semester(
+    stream: str,
+    semester: str,
+    user=Depends(get_current_user),
+    db=Depends(get_db),
+):
+    """Get curriculum for a specific stream and semester."""
+    doc = await db.db.curriculum.find_one({"stream": stream, "semester": semester})
+    
+    if not doc:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Curriculum not found for {stream} semester {semester}"
+        )
+    
+    return {
+        "stream": doc.get("stream"),
+        "semester": doc.get("semester"),
+        "subjects": doc.get("subjects", []),
+        "updated_at": doc.get("updated_at"),
+    }
+
+
 @router.post("/admin/curriculum")
 async def set_curriculum(
     body: CurriculumConfig,
@@ -165,5 +216,25 @@ async def set_curriculum(
 
 
 @router.get("/filters")
-async def get_filters(user=Depends(get_current_user), vs=Depends(get_vector_store)):
-    return vs.get_filter_values()
+async def get_filters(vs=Depends(get_vector_store), db=Depends(get_db)):
+    """Get filter values including curriculum data from MongoDB. Public endpoint."""
+    # Get filter values from vector store (documents)
+    filter_values = vs.get_filter_values()
+    
+    # Fetch curriculum data from MongoDB
+    curriculum = {}
+    cursor = db.db.curriculum.find({}).sort([("stream", 1), ("semester", 1)])
+    async for doc in cursor:
+        stream = doc.get("stream")
+        semester = doc.get("semester")
+        subjects = [s.get("name") for s in doc.get("subjects", [])]
+        
+        if stream not in curriculum:
+            curriculum[stream] = {}
+        curriculum[stream][semester] = subjects
+    
+    # Merge curriculum data into response
+    return {
+        **filter_values,
+        "curriculum": curriculum
+    }

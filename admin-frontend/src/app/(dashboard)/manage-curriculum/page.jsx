@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "../../../context/ToastContext";
-import { API_BASE_URL } from "../../../services/api";
+import { API_BASE_URL, api } from "../../../services/api";
 import {
   Plus,
   Trash2,
@@ -54,19 +54,14 @@ export default function ManageCurriculumPage() {
   const handleSave = async () => {
     try {
       setSaving(true);
-      const auth_token =
-        localStorage.getItem("admin_token") || sessionStorage.getItem("admin_token");
-      const res = await fetch(`${API_BASE_URL}/api/v1/admin/curriculum`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${auth_token}`
-        },
-        body: JSON.stringify(curriculum)
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Failed to save curriculum");
+      // api.admin.saveCurriculum iterates each stream+semester
+      // and POSTs { stream, semester, subjects } individually
+      const results = await api.admin.saveCurriculum(curriculum);
+
+      const errors = results.filter(r => r.status === 'error');
+      if (errors.length > 0) {
+        const errorDetails = errors.map(e => `${e.stream}/${e.semester}: ${e.error}`).join('; ');
+        throw new Error(`Some entries failed: ${errorDetails}`);
       }
       addToast({ type: "success", message: "Curriculum saved successfully" });
     } catch (err) {

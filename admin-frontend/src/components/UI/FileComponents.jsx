@@ -278,7 +278,7 @@ export function FilePreview({ doc, onClose, onSave, isArchived = false }) {
           if (doc.id) {
             // Stream through backend to avoid browser CORS issues with R2 in PDF.js.
             if (isMounted) {
-              setContent(`${API_BASE_URL}/api/v1/documents/${doc.id}/preview-file`);
+              setContent(`${API_BASE_URL}/api/v1/documents/${doc.id}/file`);
             }
           } else if (isMounted) {
             setContent(doc.preview_url || doc.download_url || null);

@@ -414,3 +414,33 @@ export async function getQuizHistory(): Promise<QuizHistoryEntry[]> {
   const data = await res.json();
   return data.history || [];
 }
+
+// ─── Student Analytics ───
+
+export interface WeakTopic {
+  subject: string;
+  query_count: number;
+  weakness_score: number;
+}
+
+export interface WeakModule {
+  document_id: string;
+  subject: string;
+  title: string;
+  queries: number;
+}
+
+export interface StudentStats {
+  total_queries: number;
+  quiz_history: QuizHistoryEntry[];
+  average_quiz_score: number;
+  study_completion: number;
+  weak_topics: WeakTopic[];
+  weak_modules: WeakModule[];
+}
+
+export async function getStudentStats(): Promise<StudentStats | null> {
+  const res = await apiFetch("/api/v1/analytics/student/stats");
+  if (!res.ok) return null;
+  return res.json();
+}

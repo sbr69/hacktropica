@@ -3,9 +3,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Search, Loader2, Users, AlertCircle, Filter, ChevronDown, Copy, Check, MoreVertical, Upload, FileText, CheckCircle2, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import RoleProtectedRoute from '../../../components/RoleProtectedRoute';
-import api from '../../../services/api';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+import { api } from '../../../services/api';
 
 export default function StudentRecords() {
   const [students, setStudents] = useState([]);
@@ -23,7 +21,6 @@ export default function StudentRecords() {
   const [enrollStatus, setEnrollStatus] = useState({ type: '', message: '' });
   const [previewData, setPreviewData] = useState(null);
   const [headers, setHeaders] = useState([]);
-  const [token, setToken] = useState('');
 
   const handleCopy = (text, id) => {
     navigator.clipboard.writeText(text);
@@ -82,49 +79,38 @@ export default function StudentRecords() {
     setIsUploading(true);
     setEnrollStatus({ type: '', message: '' });
 
-    const formData = new FormData();
-    formData.append('file', file);
-
     try {
-      const response = await fetch(`${API_URL}/api/v1/admin/enroll_students`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
-        body: formData
-      });
+      // Read CSV file as text — backend expects JSON with csv_data string
+      const csvText = await file.text();
 
-      const data = await response.json();
+      const data = await api.admin.enroll(csvText);
 
-      if (response.ok) {
-        setEnrollStatus({ type: 'success', message: data.message || `Successfully enrolled students.` });
-        setFile(null);
-        setPreviewData(null);
-        setHeaders([]);
-        const fileInput = document.getElementById('student-file-upload');
-        if (fileInput) fileInput.value = '';
-        
-        // Refresh student list
-        setTimeout(() => {
-          setShowEnrollModal(false);
+      setEnrollStatus({ type: 'success', message: data.message || `Successfully enrolled students.` });
+      setFile(null);
+      setPreviewData(null);
+      setHeaders([]);
+      const fileInput = document.getElementById('student-file-upload');
+      if (fileInput) fileInput.value = '';
+
+      // Refresh student list
+      setTimeout(async () => {
+        setShowEnrollModal(false);
+        try {
+          const refreshed = await api.admin.students();
+          setStudents(refreshed);
+        } catch (_) {
           window.location.reload();
-        }, 1500);
-      } else {
-        setEnrollStatus({ type: 'error', message: data.detail || data.message || 'Failed to enroll students.' });
-      }
+        }
+      }, 1500);
     } catch (error) {
       console.error('Upload error:', error);
-      setEnrollStatus({ type: 'error', message: 'Network error occurred while uploading. Please check API server.' });
+      setEnrollStatus({ type: 'error', message: error.message || 'Failed to enroll students.' });
     } finally {
       setIsUploading(false);
     }
   };
 
   useEffect(() => {
-    const authToken = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
-    if (authToken) {
-      setToken(authToken);
-    }
     
     const fetchStudents = async () => {
       try {

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { fetchDocuments, generateQuiz, getQuizHistory, type QuizHistoryEntry } from "@/lib/auth";
+import { fetchDocuments, generateQuiz, getStudentStats, type StudentStats } from "@/lib/auth";
 import { auth, type User } from "@/lib/auth";
 import { useNavigate } from "react-router-dom";
 import Dropdown from "@/components/common/Dropdown";
@@ -13,13 +13,13 @@ export default function ExamPreparationPage() {
   const [selectedSubject, setSelectedSubject] = useState<string>("All Subjects");
   const [questionCount, setQuestionCount] = useState<number>(10);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [error, setError] = useState<string | null>(null); // For generation errors
-  const [docError, setDocError] = useState<string | null>(null); // For backend connection errors
+  const [error, setError] = useState<string | null>(null);
+  const [docError, setDocError] = useState<string | null>(null);
 
-  const [history, setHistory] = useState<QuizHistoryEntry[]>([]);
-  const [loadingHistory, setLoadingHistory] = useState(true);
+  const [stats, setStats] = useState<StudentStats | null>(null);
+  const [loadingStats, setLoadingStats] = useState(true);
 
-  const fallbackHistory: QuizHistoryEntry[] = [
+  const fallbackHistory = [
     {
       quiz_id: "fallback-1",
       subject: "Database Management",
@@ -44,49 +44,10 @@ export default function ExamPreparationPage() {
       percentage: 100,
       submitted_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
     },
-    {
-      quiz_id: "fallback-4",
-      subject: "Discrete Mathematics",
-      score: 6,
-      total_questions: 10,
-      percentage: 60,
-      submitted_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
-    },
-    {
-      quiz_id: "fallback-5",
-      subject: "Web Development",
-      score: 9,
-      total_questions: 10,
-      percentage: 88,
-      submitted_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
-    },
-    {
-      quiz_id: "fallback-6",
-      subject: "Software Engineering",
-      score: 8,
-      total_questions: 10,
-      percentage: 75,
-      submitted_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-    },
-    {
-      quiz_id: "fallback-7",
-      subject: "Algorithms",
-      score: 10,
-      total_questions: 10,
-      percentage: 95,
-      submitted_at: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString(),
-    },
-    {
-      quiz_id: "fallback-8",
-      subject: "Artificial Intelligence",
-      score: 7,
-      total_questions: 10,
-      percentage: 72,
-      submitted_at: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-    },
   ];
 
   const displayedHistory = (() => {
+    const history = stats?.quiz_history || [];
     const sortedHistory = [...history].sort(
       (a, b) => new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime()
     );
@@ -111,24 +72,24 @@ export default function ExamPreparationPage() {
     if (loading || !user) return;
 
     const loadData = async () => {
-      setLoadingHistory(true);
+      setLoadingStats(true);
       setDocError(null);
       try {
-        console.log("[ExamPrep] Loading subjects and history from backend");
-        const [docs, historyData] = await Promise.all([
+        console.log("[ExamPrep] Loading subjects and stats from backend");
+        const [docs, studentStats] = await Promise.all([
           fetchDocuments(),
-          getQuizHistory()
+          getStudentStats()
         ]);
         
         const uniqueSubjects = Array.from(new Set(docs.map((d) => d.subject || "General")));
         setSubjects(uniqueSubjects.sort());
-        setHistory(historyData);
-        console.log(`[ExamPrep] Successfully loaded ${docs.length} docs and ${historyData.length} history entries.`);
+        setStats(studentStats);
+        console.log(`[ExamPrep] Successfully loaded ${docs.length} docs and student stats.`);
       } catch (err) {
         console.error("Failed to load data in ExamPrep:", err);
         setDocError(err instanceof Error ? err.message : "Connection failed to backend.");
       } finally {
-        setLoadingHistory(false);
+        setLoadingStats(false);
       }
     };
     loadData();
@@ -177,6 +138,19 @@ export default function ExamPreparationPage() {
       navigate("/exam/quiz");
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const handleRefreshStats = async () => {
+    if (!user) return;
+    setLoadingStats(true);
+    try {
+      const studentStats = await getStudentStats();
+      setStats(studentStats);
+    } catch (err) {
+      console.error("Failed to refresh stats:", err);
+    } finally {
+      setLoadingStats(false);
     }
   };
 
@@ -247,16 +221,27 @@ export default function ExamPreparationPage() {
               <h2 className="text-lg font-bold text-slate-800 font-headline mb-8">Progress Overview</h2>
               <div className="flex items-center justify-between px-2">
                 <div className="flex items-center gap-6">
-                  {/* Fake Donut Chart */}
+                  {/* Donut Chart */}
                   <div className="relative w-28 h-28 flex items-center justify-center">
                     <svg className="absolute inset-0 w-full h-full -rotate-90">
                       <circle cx="56" cy="56" r="46" className="stroke-slate-100" strokeWidth="12" fill="none" />
-                      <circle cx="56" cy="56" r="46" className="stroke-[#0d47a1]" strokeWidth="12" fill="none" strokeDasharray="289" strokeDashoffset="43" strokeLinecap="round" />
+                      <circle 
+                        cx="56" 
+                        cy="56" 
+                        r="46" 
+                        className="stroke-[#0d47a1]" 
+                        strokeWidth="12" 
+                        fill="none" 
+                        strokeDasharray="289" 
+                        strokeDashoffset={289 - (289 * (stats?.study_completion || 85) / 100)} 
+                        strokeLinecap="round" 
+                      />
                     </svg>
-                    <span className="text-[26px] font-black tracking-tight text-slate-800">85%</span>
+                    <span className="text-[26px] font-black tracking-tight text-slate-800">
+                      {stats?.study_completion || 85}%
+                    </span>
                   </div>
                   <div className="text-[13px] text-slate-600 font-medium flex flex-col pt-1">
-                    <span>Chart</span>
                     <span>Study</span>
                     <span>Completion</span>
                   </div>
@@ -266,7 +251,9 @@ export default function ExamPreparationPage() {
                 
                 <div className="text-left pr-2">
                   <div className="text-[13px] text-slate-500 font-bold mb-1 uppercase tracking-tight">Average Score</div>
-                  <div className="text-[32px] font-black tracking-tight text-slate-800 leading-none">92%</div>
+                  <div className="text-[32px] font-black tracking-tight text-slate-800 leading-none">
+                    {stats?.average_quiz_score || 0}%
+                  </div>
                 </div>
               </div>
             </div>
@@ -276,45 +263,26 @@ export default function ExamPreparationPage() {
               <h2 className="text-lg font-bold text-slate-800 font-headline mb-4">Weak Topics Analysis</h2>
               
               <div className="flex-1 overflow-y-auto pr-2 scrollbar-hide space-y-0 divide-y divide-slate-100">
-                <div className="py-[18px] first:pt-0 flex items-center justify-between gap-4">
-                  <div>
-                    <div className="font-bold text-[14px] text-slate-900">Computer Networks</div>
-                    <div className="text-[13px] text-slate-600 mt-0.5">Osi Layers</div>
+                {stats?.weak_modules && stats.weak_modules.length > 0 ? (
+                  stats.weak_modules.map((module, idx) => (
+                    <div key={idx} className="py-[18px] first:pt-0 flex items-center justify-between gap-4">
+                      <div>
+                        <div className="font-bold text-[14px] text-slate-900">{module.subject}</div>
+                        <div className="text-[13px] text-slate-600 mt-0.5">{module.title}</div>
+                      </div>
+                      <button 
+                        onClick={() => navigate("/resources")}
+                        className="bg-[#0d47a1] text-white text-xs font-bold px-4 py-2 rounded-xl hover:bg-blue-800 transition-colors shadow-sm tracking-wide"
+                      >
+                        Review Material
+                      </button>
+                    </div>
+                  ))
+                ) : (
+                  <div className="py-8 text-center text-slate-400 text-sm">
+                    No weak topics identified yet. Keep studying!
                   </div>
-                  <button className="bg-[#0d47a1] text-white text-xs font-bold px-4 py-2 rounded-xl hover:bg-blue-800 transition-colors shadow-sm tracking-wide">
-                    Review Material
-                  </button>
-                </div>
-
-                <div className="py-[18px] flex items-center justify-between gap-4">
-                  <div>
-                    <div className="font-bold text-[14px] text-slate-900">Database Management</div>
-                    <div className="text-[13px] text-slate-600 mt-0.5">Normalization</div>
-                  </div>
-                  <button className="bg-[#0d47a1] text-white text-xs font-bold px-4 py-2 rounded-xl hover:bg-blue-800 transition-colors shadow-sm tracking-wide">
-                    Review Material
-                  </button>
-                </div>
-                
-                <div className="py-[18px] flex items-center justify-between gap-4">
-                  <div>
-                    <div className="font-bold text-[14px] text-slate-900">Data Structures</div>
-                    <div className="text-[13px] text-slate-600 mt-0.5">Graph Algorithms</div>
-                  </div>
-                  <button className="bg-[#0d47a1] text-white text-xs font-bold px-4 py-2 rounded-xl hover:bg-blue-800 transition-colors shadow-sm tracking-wide">
-                    Review Material
-                  </button>
-                </div>
-                
-                <div className="py-[18px] last:pb-0 flex items-center justify-between gap-4">
-                  <div>
-                    <div className="font-bold text-[14px] text-slate-900">Operating Systems</div>
-                    <div className="text-[13px] text-slate-600 mt-0.5">Process Scheduling</div>
-                  </div>
-                  <button className="bg-[#0d47a1] text-white text-xs font-bold px-4 py-2 rounded-xl hover:bg-blue-800 transition-colors shadow-sm tracking-wide">
-                    Review Material
-                  </button>
-                </div>
+                )}
               </div>
             </div>
           </div>
@@ -323,7 +291,11 @@ export default function ExamPreparationPage() {
           <div className="bg-white rounded-2xl p-5 shadow-[0_2px_12px_rgba(0,0,0,0.02)] border border-slate-100 flex flex-col min-h-0 overflow-hidden">
             <div className="flex items-center justify-between mb-4 flex-shrink-0">
               <h2 className="text-lg font-bold text-slate-800 font-headline">Recent Activity</h2>
-              <button className="text-slate-400 hover:text-slate-600 transition-colors">
+              <button 
+                onClick={handleRefreshStats}
+                disabled={loadingStats}
+                className="text-slate-400 hover:text-slate-600 transition-colors disabled:opacity-50"
+              >
                 <span className="material-symbols-outlined text-[20px]">refresh</span>
               </button>
             </div>

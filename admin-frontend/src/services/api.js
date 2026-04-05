@@ -626,7 +626,37 @@ export const api = {
       // Fetch list of enrolled students
       const data = await apiRequest('/api/v1/students');
       return data.students || [];
-    }
+    },
+    enroll: async (csvData, options = {}) => {
+      return apiRequest('/api/v1/admin/enroll_students', {
+        method: 'POST',
+        body: JSON.stringify({
+          csv_data: csvData,
+          stream: options.stream || null,
+          semester: options.semester || null,
+        }),
+      });
+    },
+    saveCurriculum: async (curriculum) => {
+      // Save curriculum: backend expects per-stream/per-semester
+      // Iterate and upsert each stream+semester combo
+      const results = [];
+      for (const [stream, semesters] of Object.entries(curriculum)) {
+        for (const [semester, subjects] of Object.entries(semesters)) {
+          const subjectList = (subjects || []).filter(s => s !== 'NA').map(s => ({ name: s }));
+          try {
+            const res = await apiRequest('/api/v1/admin/curriculum', {
+              method: 'POST',
+              body: JSON.stringify({ stream, semester, subjects: subjectList }),
+            });
+            results.push({ stream, semester, status: 'success', ...res });
+          } catch (err) {
+            results.push({ stream, semester, status: 'error', error: err.message });
+          }
+        }
+      }
+      return results;
+    },
   },
   analytics: {
     /**
@@ -660,6 +690,18 @@ export const api = {
      */
     overview: async () => {
       return apiRequest('/api/v1/analytics/overview');
+    },
+
+    /**
+     * Pre-aggregated hit count endpoints (fast O(1) reads)
+     */
+    hitCounts: {
+      /** Global stream-level subject + module hit counts */
+      stream: async () => apiRequest('/api/v1/analytics/hit-counts/stream'),
+      /** Per-student hit count breakdown (faculty+ access) */
+      student: async (uid) => apiRequest(`/api/v1/analytics/hit-counts/student/${encodeURIComponent(uid)}`),
+      /** Current student's own hit counts */
+      me: async () => apiRequest('/api/v1/analytics/hit-counts/me'),
     },
   },
 };
